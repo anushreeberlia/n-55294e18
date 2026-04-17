@@ -7,6 +7,7 @@ const { generateDailyPlan, adjustMacros, getFoodIntelligence } = require('./nutr
 const { getWorkoutPlan, scheduleStrengthWorkouts } = require('./workouts');
 
 const app = express();
+app.use(require("express").static(require("path").join(__dirname, "public")));
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
