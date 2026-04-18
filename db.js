@@ -18,9 +18,11 @@ function initDB() {
       progress: [],
       gut_health: [],
       workouts: [],
-      activity_logs: []
+      activity_logs: [],
+      achievements: []
     };
     fs.writeFileSync(DB_PATH, JSON.stringify(initialData, null, 2));
+    console.log('💾 Database initialized with love!');
   }
 }
 
@@ -70,7 +72,6 @@ function update(collection, id, updates) {
   
   const index = data[collection].findIndex(item => item.id === id);
   if (index === -1) {
-    // Create new item if not found
     const newItem = { ...updates, id, updatedAt: new Date().toISOString() };
     data[collection].push(newItem);
     writeDB(data);
