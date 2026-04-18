@@ -17,7 +17,8 @@ function initDB() {
       daily_plans: [],
       progress: [],
       gut_health: [],
-      workouts: []
+      workouts: [],
+      activity_logs: []
     };
     fs.writeFileSync(DB_PATH, JSON.stringify(initialData, null, 2));
   }

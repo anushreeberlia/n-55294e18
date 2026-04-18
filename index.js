@@ -7,7 +7,6 @@ const { generateDailyPlan, adjustMacros, getFoodIntelligence } = require('./nutr
 const { getWorkoutPlan, scheduleStrengthWorkouts } = require('./workouts');
 
 const app = express();
-app.use(require("express").static(require("path").join(__dirname, "public")));
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
@@ -248,6 +247,55 @@ app.get('/api/gut-health/analysis', (req, res) => {
   } catch (error) {
     console.error('Gut health analysis error:', error);
     res.status(500).json({ error: 'Failed to analyze gut health' });
+  }
+});
+
+// Activity logging endpoints
+app.post('/api/activity-log', (req, res) => {
+  try {
+    const activity = {
+      ...req.body,
+      date: new Date().toISOString().split('T')[0],
+      createdAt: new Date().toISOString()
+    };
+    
+    const saved = db.insert('activity_logs', activity);
+    res.json(saved);
+  } catch (error) {
+    console.error('Activity log error:', error);
+    res.status(500).json({ error: 'Failed to log activity' });
+  }
+});
+
+app.get('/api/activity-log', (req, res) => {
+  try {
+    const { date } = req.query;
+    const targetDate = date || new Date().toISOString().split('T')[0];
+    
+    const logs = db.getAll('activity_logs')
+      .filter(log => log.date === targetDate)
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    
+    res.json(logs);
+  } catch (error) {
+    console.error('Activity log fetch error:', error);
+    res.status(500).json({ error: 'Failed to get activity logs' });
+  }
+});
+
+app.delete('/api/activity-log/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = db.remove('activity_logs', parseFloat(id));
+    
+    if (!deleted) {
+      return res.status(404).json({ error: 'Activity log not found' });
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Activity log delete error:', error);
+    res.status(500).json({ error: 'Failed to delete activity log' });
   }
 });
 
