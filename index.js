@@ -19,14 +19,15 @@ app.use((req, res, next) => {
 });
 
 // Health check
-app.get('/', (req, res) => {
+app.get('/', (req, res) => {  
   res.json({ status: 'ok', message: 'Athlete Fitness API' });
 });
 
-// User profile endpoints
-app.get('/api/profile', (req, res) => {
-  try {
-    const profile = db.getById('users', 1) || {
+// Initialize default profile if not exists
+function ensureDefaultProfile() {
+  let profile = db.getById('users', 1);
+  if (!profile) {
+    profile = {
       id: 1,
       name: 'Athlete',
       age: 28,
@@ -35,8 +36,19 @@ app.get('/api/profile', (req, res) => {
       activityLevel: 'very_active',
       goals: ['fat_loss', 'muscle_tone', 'reduce_bloating'],
       restrictions: ['dairy_sensitive'],
+      targetDate: new Date('2024-12-31').toISOString().split('T')[0], // Default target
+      programStartDate: new Date('2024-01-01').toISOString().split('T')[0],
       createdAt: new Date().toISOString()
     };
+    db.insert('users', profile);
+  }
+  return profile;
+}
+
+// User profile endpoints
+app.get('/api/profile', (req, res) => {
+  try {
+    const profile = ensureDefaultProfile();
     res.json(profile);
   } catch (error) {
     console.error('Profile error:', error);
@@ -57,97 +69,158 @@ app.put('/api/profile', (req, res) => {
 // Daily plan endpoint
 app.post('/api/daily-plan', (req, res) => {
   try {
-    const { activityType, energyLevel, date } = req.body;
-    const profile = db.getById('users', 1);
+    const { activityType, energyLevel, targetDate } = req.body;
+    const profile = ensureDefaultProfile(); // Always ensure profile exists
     const recentProgress = db.getAll('progress').slice(-7);
-    
+
+    console.log('Generating plan for profile:', profile?.name, 'weight:', profile?.weight);
+
     const plan = generateDailyPlan({
       profile,
       activityType,
       energyLevel,
       recentProgress,
-      date
+      date: targetDate || new Date().toISOString().split('T')[0]
     });
-    
+
     // Save the plan
     db.insert('daily_plans', {
       ...plan,
-      date,
+      targetDate,
       createdAt: new Date().toISOString()
     });
     
     res.json(plan);
   } catch (error) {
     console.error('Daily plan error:', error);
-    res.status(500).json({ error: 'Failed to generate daily plan' });
+    res.status(500).json({ error: 'Failed to generate daily plan: ' + error.message });
   }
 });
 
-// Meal planning endpoints
-app.get('/api/lunch-options', async (req, res) => {
+// Activity logging endpoints
+app.get('/api/activity-log', (req, res) => {
   try {
-    // Simulate fetching from Uber cafe menu
-    // In production, this would call the actual API
-    const mockLunchOptions = [
+    const { date } = req.query;
+    const allLogs = db.getAll('activity_logs');
+    const dateLogs = date ? allLogs.filter(log => log.date === date) : allLogs.slice(-20);
+    res.json(dateLogs);
+  } catch (error) {
+    console.error('Activity log fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch activity logs' });
+  }
+});
+
+app.post('/api/activity-log', (req, res) => {
+  try {
+    const { activityType, name, calories, notes, portion } = req.body;
+    const today = new Date().toISOString().split('T')[0];
+    
+    const logEntry = {
+      activityType: activityType || 'food',
+      name,
+      calories: calories || 0,
+      notes,
+      portion: portion || 1,
+      date: today,
+      createdAt: new Date().toISOString()
+    };
+    
+    const saved = db.insert('activity_logs', logEntry);
+    res.json(saved);
+  } catch (error) {
+    console.error('Activity log error:', error);
+    res.status(500).json({ error: 'Failed to log activity' });
+  }
+});
+
+app.delete('/api/activity-log/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = db.remove('activity_logs', parseFloat(id));
+    if (deleted) {
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: 'Activity log not found' });
+    }
+  } catch (error) {
+    console.error('Delete activity log error:', error);
+    res.status(500).json({ error: 'Failed to delete activity log' });
+  }
+});
+
+// Lunch options endpoint (mock data)
+app.get('/api/lunch-options', (req, res) => {
+  try {
+    const lunchOptions = [
       {
         id: 1,
-        name: 'Grilled Chicken Bowl',
+        name: 'Grilled Chicken Salad Bowl',
         protein: 35,
-        carbs: 45,
+        carbs: 20,
         fat: 12,
-        calories: 410,
+        calories: 310,
         bloatRisk: 'low',
-        ingredients: ['grilled chicken', 'quinoa', 'vegetables']
+        source: 'uber_cafe'
       },
       {
         id: 2,
-        name: 'Salmon Salad',
+        name: 'Salmon Quinoa Power Bowl',
         protein: 32,
-        carbs: 15,
-        fat: 18,
-        calories: 320,
+        carbs: 28,
+        fat: 16,
+        calories: 360,
         bloatRisk: 'low',
-        ingredients: ['salmon', 'mixed greens', 'avocado']
+        source: 'uber_cafe'
       },
       {
         id: 3,
-        name: 'Turkey Wrap',
+        name: 'Turkey & Avocado Wrap',
         protein: 28,
-        carbs: 38,
-        fat: 15,
-        calories: 380,
+        carbs: 35,
+        fat: 14,
+        calories: 350,
         bloatRisk: 'medium',
-        ingredients: ['turkey', 'whole wheat wrap', 'vegetables']
+        source: 'uber_cafe'
+      },
+      {
+        id: 4,
+        name: 'Greek Bowl with Chicken',
+        protein: 30,
+        carbs: 25,
+        fat: 18,
+        calories: 345,
+        bloatRisk: 'medium',
+        source: 'uber_cafe'
       }
     ];
-    
-    res.json(mockLunchOptions);
+    res.json(lunchOptions);
   } catch (error) {
     console.error('Lunch options error:', error);
     res.status(500).json({ error: 'Failed to get lunch options' });
   }
 });
 
+// Meal generation endpoint
 app.post('/api/generate-meals', (req, res) => {
   try {
     const { lunchChoice, dailyTargets, preferences } = req.body;
-    const profile = db.getById('users', 1);
+    const profile = ensureDefaultProfile();
     
-    const meals = adjustMacros({
+    const mealPlan = adjustMacros({
       lunch: lunchChoice,
       targets: dailyTargets,
       profile,
       preferences
     });
     
-    res.json(meals);
+    res.json(mealPlan);
   } catch (error) {
     console.error('Meal generation error:', error);
     res.status(500).json({ error: 'Failed to generate meals' });
   }
 });
 
-// Food intelligence
+// Food intelligence endpoint
 app.post('/api/food-intelligence', (req, res) => {
   try {
     const { foodName } = req.body;
@@ -163,7 +236,7 @@ app.post('/api/food-intelligence', (req, res) => {
 app.get('/api/workout-schedule', (req, res) => {
   try {
     const { date } = req.query;
-    const schedule = scheduleStrengthWorkouts(date);
+    const schedule = scheduleStrengthWorkouts(date || new Date().toISOString().split('T')[0]);
     res.json(schedule);
   } catch (error) {
     console.error('Workout schedule error:', error);
@@ -177,24 +250,24 @@ app.get('/api/workout/:type', (req, res) => {
     const workout = getWorkoutPlan(type);
     res.json(workout);
   } catch (error) {
-    console.error('Workout plan error:', error);
-    res.status(500).json({ error: 'Failed to get workout plan' });
+    console.error('Workout error:', error);
+    res.status(500).json({ error: 'Failed to get workout' });
   }
 });
 
-// Progress tracking
+// Progress tracking endpoints
 app.post('/api/progress', (req, res) => {
   try {
-    const progress = {
+    const progressData = {
       ...req.body,
       date: new Date().toISOString().split('T')[0],
       createdAt: new Date().toISOString()
     };
     
-    const saved = db.insert('progress', progress);
+    const saved = db.insert('progress', progressData);
     res.json(saved);
   } catch (error) {
-    console.error('Progress error:', error);
+    console.error('Progress save error:', error);
     res.status(500).json({ error: 'Failed to save progress' });
   }
 });
@@ -202,130 +275,81 @@ app.post('/api/progress', (req, res) => {
 app.get('/api/progress', (req, res) => {
   try {
     const { days = 30 } = req.query;
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - parseInt(days));
+    const allProgress = db.getAll('progress');
     
-    const progress = db.getAll('progress')
-      .filter(p => new Date(p.date) >= cutoff)
-      .sort((a, b) => new Date(b.date) - new Date(a.date));
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - parseInt(days));
     
-    res.json(progress);
+    const recentProgress = allProgress
+      .filter(p => new Date(p.date) >= cutoffDate)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    
+    res.json(recentProgress);
   } catch (error) {
     console.error('Progress fetch error:', error);
-    res.status(500).json({ error: 'Failed to get progress' });
+    res.status(500).json({ error: 'Failed to fetch progress' });
   }
 });
 
-// Gut health tracking
+// Gut health endpoints
 app.post('/api/gut-health', (req, res) => {
   try {
-    const entry = {
+    const gutHealthData = {
       ...req.body,
       date: new Date().toISOString().split('T')[0],
       createdAt: new Date().toISOString()
     };
     
-    const saved = db.insert('gut_health', entry);
+    const saved = db.insert('gut_health', gutHealthData);
     res.json(saved);
   } catch (error) {
-    console.error('Gut health error:', error);
+    console.error('Gut health save error:', error);
     res.status(500).json({ error: 'Failed to save gut health data' });
   }
 });
 
 app.get('/api/gut-health/analysis', (req, res) => {
   try {
-    const recentEntries = db.getAll('gut_health').slice(-14);
-    const analysis = {
-      avgBloating: recentEntries.reduce((sum, e) => sum + (e.bloatingLevel || 0), 0) / recentEntries.length,
-      constipationDays: recentEntries.filter(e => e.constipation).length,
-      triggerFoods: recentEntries.flatMap(e => e.triggerFoods || []),
-      recommendation: 'Increase fiber intake and hydration'
-    };
+    const recentData = db.getAll('gut_health').slice(-14);
     
-    res.json(analysis);
+    if (recentData.length === 0) {
+      return res.json({
+        avgBloating: null,
+        constipationDays: 0,
+        recommendation: 'Start logging gut health data to get personalized insights'
+      });
+    }
+    
+    const avgBloating = recentData.reduce((sum, d) => sum + (d.bloatingLevel || 5), 0) / recentData.length;
+    const constipationDays = recentData.filter(d => d.constipated).length;
+    
+    let recommendation = 'Keep up the good work!';
+    if (avgBloating > 7) {
+      recommendation = 'Consider reducing dairy and processed foods for a few days';
+    } else if (constipationDays > 3) {
+      recommendation = 'Increase fiber intake and ensure adequate hydration';
+    }
+    
+    res.json({
+      avgBloating,
+      constipationDays,
+      recommendation
+    });
   } catch (error) {
     console.error('Gut health analysis error:', error);
     res.status(500).json({ error: 'Failed to analyze gut health' });
   }
 });
 
-// Activity logging endpoints
-app.post('/api/activity-log', (req, res) => {
-  try {
-    const activity = {
-      ...req.body,
-      date: new Date().toISOString().split('T')[0],
-      createdAt: new Date().toISOString()
-    };
-    
-    const saved = db.insert('activity_logs', activity);
-    res.json(saved);
-  } catch (error) {
-    console.error('Activity log error:', error);
-    res.status(500).json({ error: 'Failed to log activity' });
-  }
+// Error handling middleware
+app.use((error, req, res, next) => {
+  console.error('Unhandled error:', error);
+  res.status(500).json({ error: 'Internal server error' });
 });
 
-app.get('/api/activity-log', (req, res) => {
-  try {
-    const { date } = req.query;
-    const targetDate = date || new Date().toISOString().split('T')[0];
-    
-    const logs = db.getAll('activity_logs')
-      .filter(log => log.date === targetDate)
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    
-    res.json(logs);
-  } catch (error) {
-    console.error('Activity log fetch error:', error);
-    res.status(500).json({ error: 'Failed to get activity logs' });
-  }
-});
-
-app.delete('/api/activity-log/:id', (req, res) => {
-  try {
-    const { id } = req.params;
-    const deleted = db.remove('activity_logs', parseFloat(id));
-    
-    if (!deleted) {
-      return res.status(404).json({ error: 'Activity log not found' });
-    }
-    
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Activity log delete error:', error);
-    res.status(500).json({ error: 'Failed to delete activity log' });
-  }
-});
-
-// Weekly adaptation
-cron.schedule('0 6 * * 1', () => {
-  console.log('Running weekly adaptation...');
-  try {
-    const profile = db.getById('users', 1);
-    const recentProgress = db.getAll('progress').slice(-14);
-    
-    // Simple adaptation logic
-    if (recentProgress.length >= 7) {
-      const avgWeight = recentProgress.reduce((sum, p) => sum + (p.weight || 0), 0) / recentProgress.length;
-      const lastWeight = recentProgress[0].weight;
-      
-      if (Math.abs(avgWeight - lastWeight) < 0.5) {
-        // No significant change, reduce calories slightly
-        const updatedProfile = {
-          ...profile,
-          calorieAdjustment: (profile.calorieAdjustment || 0) - 50
-        };
-        db.update('users', 1, updatedProfile);
-        console.log('Reduced calories by 50 due to plateau');
-      }
-    }
-  } catch (error) {
-    console.error('Weekly adaptation error:', error);
-  }
-});
+// Initialize default profile on startup
+ensureDefaultProfile();
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Athlete Fitness API running on port ${PORT}`);
 });
